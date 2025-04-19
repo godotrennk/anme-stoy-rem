@@ -1,0 +1,75 @@
+
+def separate_lora_AB(parameters, B_patterns=None):
+    parameters_normal = {}
+    parameters_B = {}
+
+    if B_patterns is None:
+        B_patterns = ['.lora_B.', '__zero__']
+
+    for k, v in parameters.items():
+        if any(B_pattern in k for B_pattern in B_patterns):
+            parameters_B[k] = v
+        else:
+            parameters_normal[k] = v
+
+    return parameters_normal, parameters_B
+
+
+def set_attr_recursive(obj, attr, value):
+    attrs = attr.split(".")
+    for name in attrs[:-1]:
+        obj = getattr(obj, name)
+    setattr(obj, attrs[-1], value)
+    return
+
+
+def print_tensor_list_size(tensors):
+    total_size = 0
+
+upress_lower_channels(m, k, alpha=0.01):
+    data = m.weight.data.clone()
+
+    assert int(data.shape[1]) >= k
+
+    data[:, :k] = data[:, :k] * alpha
+    m.weight.data = data.contiguous().clone()
+    return m
+
+
+def freeze_module(m):
+    if not hasattr(m, '_forward_inside_frozen_module'):
+        m._forward_inside_frozen_module = m.forward
+    m.requires_grad_(False)
+    m.forward = torch.no_grad()(m.forward)
+    return m
+
+
+def get_latest_safetensors(folder_path):
+    safetensors_files = glob.glob(os.path.join(folder_path, '*.safetensors'))
+
+    if not safetensors_files:
+        raise ValueError('No file to resume!')
+
+    latest_file = max(safetensors_files, key=os.path.getmtime)
+    latest_file = os.path.abspath(os.path.realpath(latest_file))
+    return latest_file
+
+
+def generate_random_prompt_from_tags(tags_str, min_length=3, max_length=32):
+    tags = tags_str.split(', ')
+    tags = random.sample(tags, k=min(random.randint(min_length, max_length), len(tags)))
+    prompt = ', '.join(tags)
+    return prompt
+
+
+def interpolate_numbers(a, b, n, round_to_int=False, gamma=1.0):
+    numbers = a + (b - a) * (np.linspace(0, 1, n) ** gamma)
+    if round_to_int:
+def hf_clip_vision_encode(image, feature_extractor, image_encoder):
+    assert isinstance(image, np.ndarray)
+    assert image.ndim == 3 and image.shape[2] == 3
+    assert image.dtype == np.uint8
+
+    preprocessed = feature_extractor.preprocess(images=image, return_tensors="pt").to(device=image_encoder.device, dtype=image_encoder.dtype)
+    image_encoder_output = image_encoder(**preprocessed)
+   
