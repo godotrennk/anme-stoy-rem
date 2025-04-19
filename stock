@@ -1,0 +1,287 @@
+
+    if H == target_height and W == target_width:
+        return image
+
+    scale_factor = max(target_width / W, target_height / H)
+    resized_width = int(round(W * scale_factor))
+    resized_height = int(round(H * scale_factor))
+
+    resized = torch.nn.functional.interpolate(image, size=(resized_height, resized_width), mode='bilinear', align_corners=False)
+
+    top = (resized_height - target_height) // 2
+    left = (resized_width - target_width) // 2
+    cropped = resized[:, :, top:top + target_height, left:left + target_width]
+
+
+
+
+  13 \
+  start = (original_width - new_width) // 2
+    y_start = (original_height - new_height) // 2
+    cropped_image = image[y_start:y_start + new_height, x_start:x_start + new_width]
+    return cropped_image
+
+
+def write_to_json(data, file_path):
+    temp_file_path = file_path + ".tmp"
+    with open(temp_file_path, 'wt', encoding='utf-8') as temp_file:
+        json.dump(data, temp_file, indent=4)
+    os.replace(temp_file_path, file_path)
+    return
+
+
+def read_from_json(file_path):
+    with open(file_path, 'rt', encoding='utf-8') as file:
+        data = json.load(file)
+    return data
+
+
+def get_active_parameters(m):
+    return {k: v for k, v in m.named_parameters() if v.requires_grad}
+
+
+def cast_training_params(m, dtype=torch.float32):
+    result = {}
+    for n, param in m.named_parameters():
+        if param.requires_grad:
+            param.data = param.to(dtype)
+            result[n] = param
+    return result
+
+
+def separate_lora_AB(parameters, B_patterns=None):
+    parameters_normal = {}
+    parameters_B = {}
+
+    if B_patterns is None:
+        B_patterns = ['.lora_B.', '__zero__']
+
+    for k, v in parameters.items():
+        if any(B_pattern in k for B_pattern in B_patterns):
+            parameters_B[k] = v
+        else:
+            parameters_normal[k] = v
+
+    return parameters_normal, parameters_B
+
+
+def set_attr_recursive(obj, attr, value):
+    attrs = attr.split(".")
+    for name in attrs[:-1]:
+        obj = getattr(obj, name)
+    setattr(obj, attrs[-1], value)
+    return
+
+
+def print_tensor_list_size(tensors):
+    total_size = 0
+    total_elements = 0
+
+
+
+    12 
+    otal_elements_B = total_elements / 1e9
+
+    print(f"Total number of tensors: {len(tensors)}")
+    print(f"Total size of tensors: {total_size_MB:.2f} MB")
+    print(f"Total number of parameters: {total_elements_B:.3f} billion")
+    return
+
+
+@torch.no_grad()
+def batch_mixture(a, b=None, probability_a=0.5, mask_a=None):
+    batch_size = a.size(0)
+
+    if b is None:
+        b = torch.zeros_like(a)
+
+    if mask_a is None:
+        mask_a = torch.rand(batch_size) < probability_a
+
+    mask_a = mask_a.to(a.device)
+    mask_a = mask_a.reshape((batch_size,) + (1,) * (a.dim() - 1))
+    result = torch.where(mask_a, a, b)
+    return result
+
+
+@torch.no_grad()
+def zero_module(module):
+    for p in module.parameters():
+        p.detach().zero_()
+    return module
+
+
+@torch.no_grad()
+def supress_lower_channels(m, k, alpha=0.01):
+    data = m.weight.data.clone()
+
+    assert int(data.shape[1]) >= k
+
+    data[:, :k] = data[:, :k] * alpha
+    m.weight.data = data.contiguous().clone()
+    return m
+
+
+def freeze_module(m):
+    if not hasattr(m, '_forward_inside_frozen_module'):
+        m._forward_inside_frozen_module = m.forward
+    m.requires_grad_(False)
+    m.forward = torch.no_grad()(m.forward)
+    return m
+
+
+def get_latest_safetensors(folder_path):
+    safetensors_files = glob.glob(os.path.join(folder_path, '*.safetensors'))
+
+    if not safetensors_files:
+        raise ValueError('No file to resume!')
+
+    latest_file = max(safetensors_files, key=os.path.getmtime)
+    latest_file = os.path.abspath(os.path.realpath(latest_file))
+    return latest_file
+
+
+def generate_random_prompt_from_tags(tags_str, min_length=3, max_length=32):
+    tags = tags_str.split(', ')
+    tags = random.sample(tags, k=min(random.randint(min_length, max_length), len(tags)))
+    prompt = ', '.join(tags)
+    return prompt
+
+
+def interpolate_numbers(a, b, n, round_to_int=False, gamma=1.0):
+    numbers = a + (b - a) * (np.linspace(0, 1, n) ** gamma)
+    if round_to_int:
+        numbers = np.round(numbers).astype(int)
+    return numbers.tolist()
+
+
+def uniform_random_by_intervals(inclusive, exclusive, n, round_to_int=False):
+    edges = np.linspace(0, 1, n + 1)
+    points = np.random.uniform(edges[:-1], edges[1:])
+    numbers = inclusive + (exclusive - inclusive) * points
+    if round_to_int:
+        numbers = np.round(numbers).astype(int)
+    return numbers.tolist()
+
+
+def soft_append_bcthw(history, current, overlap=0):
+    if overlap <= 0:
+        return torch.cat([history, current], dim=2)
+
+    assert history.shape[2] >= overlap, f"History length ({history.shape[2]}) must be >= overlap ({overlap})"
+    assert current.shape[2] >= overlap, f"Current length ({current.shape[2]}) must be >= overlap ({overlap})"
+    
+    weights = torch.linspace(1, 0, overlap, dtype=history.dtype, device=history.device).view(1, 1, -1, 1, 1)
+    blended = weights * history[:, :, -overlap:] + (1 - weights) * current[:, :, :overlap]
+    output = torch.cat([history[:, :, :-overlap], blended, current[:, :, overlap:]], dim=2)
+
+    return output.to(history)
+
+
+def save_bcthw_as_mp4(x, output_filename, fps=10, crf=0):
+    b, c, t, h, w = x.shape
+
+    per_row = b
+    for p in [6, 5, 4, 3, 2]:
+        if b % p == 0:
+            per_row = p
+            break
+
+    os.makedirs(os.path.dirname(os.path.abspath(os.path.realpath(output_filename))), exist_ok=True)
+    x = torch.clamp(x.float(), -1., 1.) * 127.5 + 127.5
+    x = x.detach().cpu().to(torch.uint8)
+    x = einops.rearrange(x, '(m n) c t h w -> t (m h) (n w) c', n=per_row)
+    torchvision.io.write_video(output_filename, x, fps=fps, video_codec='libx264', options={'crf': str(int(crf))})
+    return x
+
+
+def save_bcthw_as_png(x, output_filename):
+    os.makedirs(os.path.dirname(os.path.abspath(os.path.realpath(output_filename))), exist_ok=True)
+    x = torch.clamp(x.float(), -1., 1.) * 127.5 + 127.5
+    x = x.detach().cpu().to(torch.uint8)
+    x = einops.rearrange(x, 'b c t h w -> c (b h) (t w)')
+    torchvision.io.write_png(x, output_filename)
+    return output_filename
+
+(Rame):
+    os.makedirs(os.path.dirname(os.path.abspath(os.path.realpath(output_filename))), exist_ok=True)
+    x = torch.clamp(x.float(), -1., 1.) * 127.5 + 127.5
+    x = x.detach().cpu().to(torch.uint8)
+    x = einops.rearrange(x, 'b c h w -> c h (b w)')
+    torchvision.io.write_png(x, output_filename)
+    return output_filename
+14 
+
+y = y.detach().float().cpu().numpy().clip(0, 255).astype(np.uint8)
+        results.append(y)
+    return results
+
+
+@torch.inference_mode()
+def numpy2pytorch(imgs):
+    h = torch.from_numpy(np.stack(imgs, axis=0)).float() / 127.5 - 1.0
+    h = h.movedim(-1, 1)
+    return h
+
+
+@torch.no_grad()
+def duplicate_prefix_to_suffix(x, count, zero_out=False):
+    if zero_out:
+        return torch.cat([x, torch.zeros_like(x[:count])], dim=0)
+    else:
+        return torch.cat([x, x[:count]], dim=0)
+
+
+def weighted_mse(a, b, weight):
+    return torch.mean(weight.float() * (a.float() - b.float()) ** 2)
+
+
+def clamped_linear_interpolation(x, x_min, y_min, x_max, y_max, sigma=1.0):
+    x = (x - x_min) / (x_max - x_min)
+    x = max(0.0, min(x, 1.0))
+    x = x ** sigma
+    return y_min + x * (y_max - y_min)
+
+
+def expand_to_dims(x, target_dims):
+    return x.view(*x.shape, *([1] * max(0, target_dims - x.dim())))
+
+
+def repeat_to_batch_size(tensor: torch.Tensor, batch_size: int):
+    if tensor is None:
+        return None
+
+    first_dim = tensor.shape[0]
+
+    if first_dim == batch_size:
+        return tensor
+
+    if batch_size % first_dim != 0:
+        raise ValueError(f"Cannot evenly repeat first dim {first_dim} to match batch_size {batch_size}.")
+
+    repeat_times = batch_size // first_dim
+
+    return tensor.repeat(repeat_times, *[1] * (tensor.dim() - 1))
+
+
+def dim5(x):
+    return expand_to_dims(x, 5)
+
+
+def dim4(x):
+    return expand_to_dims(x, 4)
+
+
+def dim3(x):
+    return expand_to_dims(x, 3)
+
+
+def crop_or_pad_yield_mask(x, length):
+    B, F, C = x.shape
+    device = x.device
+    dtype = x.dtype
+
+    if F < length:
+        y = torch.zeros((B, length, C), dtype=dtype, device=device)
+        mask = torch.zeros((B, length), dtype=torch.bool, device=device)
+        y[:, :F, :] = x
