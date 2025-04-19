@@ -1,0 +1,390 @@
+Главная > Блог > Web-разработка > JavaScript и TypeScript >
+
+Теги: Backend • Express.js • Frontend • JavaScript • Node.js • ORM • React.js • Web-разработка • БазаДанных • ИнтернетМагазин • КаталогТоваров • Корзина • Фреймворк
+
+Кнопки «Назад» и «Вперед» браузера
+Второй способ
+У первого способа есть существенный недостаток — нельзя поделиться ссылкой. То есть, пользователь зашел на наш сайт, выбрал категорию и бренд, перешел на вторую страницу, увидел что-то интересное — и решил поделиться ссылкой. Но эта ссылка будет иметь вид http://server.com — нет выбранной категории, выбранного бренда и номера страницы. Нам надо добавлять в адресную строку браузера GET-параметры, чтобы можно было восстановить состояние.
+
+import { ListGroup } from 'react-bootstrap'
+import { useContext } from 'react'
+import { AppContext } from './AppContext.js'
+import { observer } from 'mobx-react-lite'
+import { useNavigate, createSearchParams } from 'react-router-dom'
+
+const CategoryBar = observer(() => {
+    const { catalog } = useContext(AppContext)
+    const navigate = useNavigate()
+
+    const handleClick = (id) => {
+        if (id === catalog.category) {
+            catalog.category = null
+        } else {
+            catalog.category = id
+        }
+        // при каждом клике добавляем в историю браузера новый элемент
+        const params = {}
+        if (catalog.category) params.category = catalog.category
+        if (catalog.brand) params.brand = catalog.brand
+        if (catalog.page > 1) params.page = catalog.page
+        navigate({
+            pathname: '/',
+            search: '?' + createSearchParams(params),
+        })
+    }
+
+    return (
+        <ListGroup>
+            {catalog.categories.map(item =>
+                <ListGroup.Item
+                    key={item.id}
+                    active={item.id === catalog.category}
+                    onClick={() => handleClick(item.id)}
+                    style={{cursor: 'pointer'}}
+                >
+                    {item.name}
+                </ListGroup.Item>
+            )}
+        </ListGroup>
+    )
+})
+
+export default CategoryBarКопировать
+import { ListGroup } from 'react-bootstrap'
+import { useContext } from 'react'
+import { AppContext } from './AppContext.js'
+import { observer } from 'mobx-react-lite'
+import { useNavigate, createSearchParams } from 'react-router-dom'
+
+const BrandBar = observer(() => {
+    const { catalog } = useContext(AppContext)
+    const navigate = useNavigate()
+
+    const handleClick = (id) => {
+        if (id === catalog.brand) {
+            catalog.brand = null
+        } else {
+            catalog.brand = id
+        }
+        // при каждом клике добавляем в историю браузера новый элемент
+        const params = {}
+        if (catalog.category) params.category = catalog.category
+        if (catalog.brand) params.brand = catalog.brand
+        if (catalog.page > 1) params.page = catalog.page
+        navigate({
+            pathname: '/',
+            search: '?' + createSearchParams(params),
+        })
+    }
+
+    return (
+        <ListGroup horizontal>
+            {catalog.brands.map(item =>
+                <ListGroup.Item
+                    key={item.id}
+                    active={item.id === catalog.brand}
+                    onClick={() => handleClick(item.id)}
+                    style={{cursor: 'pointer'}}
+                >
+                    {item.name}
+                </ListGroup.Item>
+            )}
+        </ListGroup>
+    )
+})
+
+export default BrandBarКопировать
+import { Container, Row, Col, Spinner } from 'react-bootstrap'
+import CategoryBar from '../components/CategoryBar.js'
+import BrandBar from '../components/BrandBar.js'
+import ProductList from '../components/ProductList.js'
+import { useContext, useEffect, useState } from 'react'
+import { AppContext } from '../components/AppContext.js'
+import { fetchCategories, fetchBrands, fetchAllProducts } from '../http/catalogAPI.js'
+import { observer } from 'mobx-react-lite'
+import { useLocation, useSearchParams } from 'react-router-dom'
+
+const getSearchParams = (searchParams) => {
+    let category = searchParams.get('category')
+    if (category && /[1-9][0-9]*/.test(category)) {
+        category = parseInt(category)
+    }
+    let brand = searchParams.get('brand')
+    if (brand && /[1-9][0-9]*/.test(brand)) {
+        brand = parseInt(brand)
+    }
+    let page = searchParams.get('page')
+    if (page && /[1-9][0-9]*/.test(page)) {
+        page = parseInt(page)
+    }
+    return {category, brand, page}
+}
+
+const Shop = observer(() => {
+    const { catalog } = useContext(AppContext)
+
+    const [categoriesFetching, setCategoriesFetching] = useState(true)
+    const [brandsFetching, setBrandsFetching] = useState(true)
+    const [productsFetching, setProductsFetching] = useState(true)
+
+    const location = useLocation()
+    const [searchParams] = useSearchParams()
+
+    useEffect(() => {
+        fetchCategories()
+            .then(data => catalog.categories = data)
+            .finally(() => setCategoriesFetching(false))
+
+        fetchBrands()
+            .then(data => catalog.brands = data)
+            .finally(() => setBrandsFetching(false))
+
+        const {category, brand, page} = getSearchParams(searchParams)
+        catalog.category = category
+        catalog.brand = brand
+        catalog.page = page ?? 1
+
+        fetchAllProducts(catalog.category, catalog.brand, catalog.page, catalog.limit)
+            .then(data => {
+                catalog.products = data.rows
+                catalog.count = data.count
+            })
+            .finally(() => setProductsFetching(false))
+        // eslint-disable-next-line
+    }, [])
+
+    useEffect(() => {
+        const {category, brand, page} = getSearchParams(searchParams)
+
+        if (category || brand || page) {
+            if (category !== catalog.category) catalog.category = category
+            if (brand !== catalog.brand) catalog.brand = brand
+            if (page !== catalog.page) catalog.page = page ?? 1
+        } else  {
+            catalog.category = null
+            catalog.brand = null
+            catalog.page = 1
+        }
+        // eslint-disable-next-line
+    }, [location.search])
+
+    useEffect(() => {
+        setProductsFetching(true)
+        setTimeout(() => {
+            fetchAllProducts(catalog.category, catalog.brand, catalog.page, catalog.limit)
+                .then(data => {
+                    catalog.products = data.rows
+                    catalog.count = data.count
+                })
+                .finally(() => setProductsFetching(false))
+        }, 1000)
+        // eslint-disable-next-line
+    }, [catalog.category, catalog.brand, catalog.page])
+
+    return (
+        <Container>
+            <Row className="mt-2">
+                <Col md={3} className="mb-3">
+                    {categoriesFetching ? (
+                        <Spinner animation="border" />
+                    ) : (
+                        <CategoryBar />
+                    )}
+                </Col>
+                <Col md={9}>
+                    <div>
+                        {brandsFetching ? (
+                            <Spinner animation="border" />
+                        ) : (
+                            <BrandBar />
+                        )}
+                    </div>
+                    <div>
+                        {productsFetching ? (
+                            <Spinner animation="border" />
+                        ) : (
+                            <ProductList />
+                        )}
+                    </div>
+                </Col>
+            </Row>
+        </Container>
+    )
+})
+
+export default ShopКопировать
+При начальной загрузке каталога мы проверяем наличие GET-параметров и если они есть — выполняем запрос на сервер с учетом выбранной категории, бренда и страницы.
+
+Страница товара
+Как-то совсем упустил из вида эту страницу. Нужно добавить еще один маршрут в компонент AppRouter, сверстать страницу pages/Product.js, добавить обработчик клика в компонент ProductItem (для перехода на страницу товара).
+
+import { Routes, Route } from 'react-router-dom'
+import Shop from '../pages/Shop.js'
+import Login from '../pages/Login.js'
+import Signup from '../pages/Signup.js'
+import Basket from '../pages/Basket.js'
+import Product from '../pages/Product.js'
+import Delivery from '../pages/Delivery.js'
+import Contacts from '../pages/Contacts.js'
+import NotFound from '../pages/NotFound.js'
+import User from '../pages/User.js'
+import Admin from '../pages/Admin.js'
+import { AppContext } from './AppContext.js'
+import { useContext } from 'react'
+import { observer } from 'mobx-react-lite'
+
+const publicRoutes = [
+    {path: '/', Component: Shop},
+    {path: '/login', Component: Login},
+    {path: '/signup', Component: Signup},
+    {path: '/product/:id', Component: Product},
+    {path: '/basket', Component: Basket},
+    {path: '/delivery', Component: Delivery},
+    {path: '/contacts', Component: Contacts},
+    {path: '*', Component: NotFound},
+]
+
+const authRoutes = [
+    {path: '/user', Component: User},
+]
+
+const adminRoutes = [
+    {path: '/admin', Component: Admin},
+]
+
+const AppRouter = observer(() => {
+    const { user } = useContext(AppContext)
+    return (
+        <Routes>
+            {publicRoutes.map(({path, Component}) =>
+                <Route key={path} path={path} element={<Component />} />
+            )}
+            {user.isAuth && authRoutes.map(({path, Component}) =>
+                <Route key={path} path={path} element={<Component />} />
+            )}
+            {user.isAdmin && adminRoutes.map(({path, Component}) =>
+                <Route key={path} path={path} element={<Component />} />
+            )}
+        </Routes>
+    )
+})
+
+export default AppRouterКопировать
+import { Card, Col } from 'react-bootstrap'
+import { useNavigate } from 'react-router-dom'
+
+const ProductItem = ({data}) => {
+    const navigate = useNavigate()
+    return (
+        <Col xl={3} lg={4} sm={6} className="mt-3" onClick={() => navigate(`/product/${data.id}`)}>
+            <Card style={{width: 200, cursor: 'pointer'}}>
+                {data.image ? (
+                    <Card.Img variant="top" src={process.env.REACT_APP_IMG_URL + data.image} />
+                ) : (
+                    <Card.Img variant="top" src="http://via.placeholder.com/200" />
+                )}
+                <Card.Body style={{height: 100, overflow: 'hidden'}}>
+                    <p>Бренд: {data.brand.name}</p>
+                    <strong>{data.name}</strong>
+                </Card.Body>
+            </Card>
+        </Col>
+    )
+}
+
+export default ProductItemКопировать
+import { Container, Row, Col, Button, Image, Spinner } from 'react-bootstrap'
+import { useEffect, useState } from 'react'
+import { fetchOneProduct, fetchProdRating } from '../http/catalogAPI.js'
+import { useParams } from 'react-router-dom'
+
+const Product = () => {
+    const { id } = useParams()
+    const [product, setProduct] = useState(null)
+    const [rating, setRating] = useState(null)
+
+    useEffect(() => {
+        fetchOneProduct(id).then(data => setProduct(data))
+        fetchProdRating(id).then(data => setRating(data))
+    }, [id])
+
+    if (!product) {
+        return <Spinner animation="border" />
+    }
+
+    return (
+        <Container>
+            <Row className="mt-3 mb-3">
+                <Col lg={4}>
+                    {product.image ? (
+                        <Image width={300} height={300} src={process.env.REACT_APP_IMG_URL + product.image} />
+                    ) : (
+                        <Image width={300} height={300} src="http://via.placeholder.com/300" />
+                    )}
+                </Col>
+                <Col lg={8}>
+                    <h1>{product.name}</h1>
+                    <h3>{product.price}.00 руб.</h3>
+                    <p>Бренд: {product.brand.name}</p>
+                    <p>Категория: {product.category.name}</p>
+                    <div>
+                        {rating ? (
+                            <p>Рейтинг: {rating.rating}, голосов {rating.votes}</p>
+                        ) : (
+                            <Spinner animation="border" />
+                        )}
+                    </div>
+                    <Button>Добавить в корзину</Button>
+                </Col>
+            </Row>
+            {!!product.props.length &&
+                <Row>
+                    <Col>
+                        <h3>Характеристики</h3>
+                        <Table bordered hover size="sm">
+                            <tbody>
+                                {product.props.map(item => 
+                                    <tr key={item.id}>
+                                        <td>{item.name}</td>
+                                        <td>{item.value}</td>
+                                    </tr>
+                                )}
+                            </tbody>
+                        </Table>
+                    </Col>
+                </Row>
+            }
+        </Container>
+    )
+}
+
+
+class Product {
+    /* .......... */
+    async getOne(id) {
+        const product = await ProductMapping.findByPk(id, {
+            include: [
+                {model: ProductPropMapping, as: 'props'},
+                {model: BrandMapping, as: 'brand'},
+                {model: CategoryMapping, as: 'category'},
+            ]
+        })
+        if (!product) {
+            throw new Error('Товар не найден в БД')
+        }
+        return product
+    }
+    /* .......... */
+}Копировать
+Для получения рейтинга товара нужно добавить еще одну функцию в http/catalogAPI.js:
+
+/* .......... */
+export const fetchProdRating = async (id) => {
+    const { data } = await guestInstance.get(`rating/product/${id}`)
+    return data
+}Копировать
+Корзина покупателя
+Первым делом нам нужно при http-запросах к серверу отправлять cookie с идентификатором корзины, так что редактируем файл http/index.js:
+
+import axios from 'axios'
+
